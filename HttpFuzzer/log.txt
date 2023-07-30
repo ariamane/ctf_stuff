@@ -1,0 +1,9 @@
+404 | GET | https://its-artifacts-jk2dm72.spbctf.ru/?attachment_id=4
+404 | GET | https://its-artifacts-jk2dm72.spbctf.ru/?attachment_id=5
+404 | GET | https://its-artifacts-jk2dm72.spbctf.ru/?attachment_id=1000
+200 | GET | https://its-artifacts-jk2dm72.spbctf.ru/?attachment_id=191
+404 | GET | https://its-artifacts-jk2dm72.spbctf.ru/?attachment_id=2
+404 | GET | https://its-artifacts-jk2dm72.spbctf.ru/?attachment_id=12
+404 | GET | https://its-artifacts-jk2dm72.spbctf.ru/?attachment_id=3
+404 | GET | https://its-artifacts-jk2dm72.spbctf.ru/?attachment_id=1
+200 | GET | https://its-artifacts-jk2dm72.spbctf.ru/?attachment_id=0
