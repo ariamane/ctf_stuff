@@ -74,39 +74,45 @@ class HttpFuzzerCmd(cmd.Cmd):
 
     # ---- Available commands ----
     def do_request(self, line):
-        file = tkinter.filedialog.askopenfile(
-            title="Select curl-containing file",
-            initialdir=pathlib.Path(__file__).parent,
-            filetypes=(
-                (
-                    ("All curl files", "*.txt;*.sh;*.req;*.curl"),
-                    ("Curl text files", "*.txt"),
-                    ("Curl script files", "*.sh"),
-                    ("Curl request files", "*.req"),
-                    ("Curl-containing files", "*.curl"),
+        args = line.strip().split(" ")
+        if args[0] == "file":
+            file = tkinter.filedialog.askopenfile(
+                title="Select curl-containing file",
+                initialdir=pathlib.Path(__file__).parent,
+                filetypes=(
+                    (
+                        ("All curl files", "*.txt;*.sh;*.req;*.curl"),
+                        ("Curl text files", "*.txt"),
+                        ("Curl script files", "*.sh"),
+                        ("Curl request files", "*.req"),
+                        ("Curl-containing files", "*.curl"),
+                    )
                 )
             )
-        )
-        if not is_text_file(file):
-            if not file:
-                print("You haven't chosen a file")
+            if not is_text_file(file):
+                if not file:
+                    print("You haven't chosen a file")
+                else:
+                    print("Provided file is not a text file")
             else:
-                print("Provided file is not a text file")
+                with file:
+                    content = file.read()
+                curl = content \
+                    .replace("\\", "") \
+                    .replace("\n", "") \
+                    .replace("$", "")
+                try:
+                    eval_string = uncurl.parse(curl)
+                    self.request_value = eval_string
+                    self.output_menu()
+                    print("Set request value successfully")
+                except SystemExit:
+                    self.output_menu()
+                    print("Could not parse curl-containing file")
+        elif args[0] == "get":
+            print(str(self.request_value))
         else:
-            with file:
-                content = file.read()
-            curl = content \
-                .replace("\\", "") \
-                .replace("\n", "") \
-                .replace("$", "")
-            try:
-                eval_string = uncurl.parse(curl)
-                self.request_value = eval_string
-                self.output_menu()
-                print("Set request value successfully")
-            except SystemExit:
-                self.output_menu()
-                print("Could not parse curl-containing file")
+            print("Incorrect arguments")
 
     def do_payload(self, line):
         args = line.strip().split(" ")
@@ -144,6 +150,8 @@ class HttpFuzzerCmd(cmd.Cmd):
                 self.payload_value = tuple(lines)
                 self.output_menu()
                 print("Set payload successfully")
+        elif args[0] == "get":
+            print(str(self.payload_value))
         else:
             print("Incorrect arguments")
 
@@ -175,6 +183,23 @@ class HttpFuzzerCmd(cmd.Cmd):
                 for task in tasks:
                     task.get()
             print()
+
+    # ---- Command helps ----
+    do_request.__doc__ = (
+        "Usage:\n"
+        "request get  | Get current Request value\n"
+        "request file | Set curl-containing file content as a Request value"
+    )
+    do_payload.__doc__ = (
+        "Usage:\n"
+        "payload get                  | Get current Payload value\n"
+        "payload file                 | Set wordlist as a Payload\n"
+        "payload range start end step | Set python range(start, end, step) as a Payload"
+    )
+    do_run.__doc__ = (
+        "Usage:\n"
+        "run | Launch the Fuzzer"
+    )
 
     # ---- Auxiliary subroutines ----
     def output_menu(self):
