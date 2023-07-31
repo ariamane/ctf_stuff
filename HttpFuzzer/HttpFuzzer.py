@@ -3,8 +3,14 @@
 
 
 import os
-import sys
+import io
+import cmd
+import time
+import string
+import random
 import pathlib
+import tkinter
+import tkinter.filedialog
 import multiprocessing.pool
 
 import uncurl
@@ -18,120 +24,179 @@ def clear_screen():
     os.system("cls" if os.name == "nt" else "clear")
 
 
-def exit_with_critical_error(error_message):
-    print("Critical error: %s" % error_message)
-    input("\nPress 'Enter' to continue...")
-    sys.exit(EXIT_FAILURE)
+def get_current_time():
+    struct_time = time.localtime(time.time())
+    return "{day}.{month}.{year} {hour}:{minutes}:{seconds}" \
+           "".format(
+        day=str(struct_time.tm_mday),
+        month=str(struct_time.tm_mon),
+        year=str(struct_time.tm_year),
+        hour=str(struct_time.tm_hour),
+        minutes=str(struct_time.tm_min),
+        seconds=str(struct_time.tm_sec)
+    )
 
 
-def get_request_eval_string():
-    path = pathlib.Path(FILE_NAME_REQUEST)
-    if not path.exists():
-        exit_with_critical_error("Could not find %s" % FILE_NAME_REQUEST)
-    else:
-        with open(path, "r") as file:
-            curl = file.read()
-        curl = curl \
-            .replace("\\", "") \
-            .replace("\n", "") \
-            .replace("$", "")
-        try:
-            request_eval_string = uncurl.parse(curl)
-            return request_eval_string
-        except SystemExit:
-            clear_screen()
-            exit_with_critical_error("Could not parse curl command")
+def random_string(length):
+    abc = string.ascii_letters
+    return "".join(random.choices(abc, k=length))
 
 
-def input_payload_choice():
-    print(HELP_MESSAGE)
-    while True:
-        payload_choice = input("Enter payload choice > ").strip()
-        if payload_choice not in ALLOWED_PARAMETERS:
-            print("Incorrect payload choice")
-        else:
-            return payload_choice
+def is_text_file(var):
+    return isinstance(var, io.TextIOBase)
 
 
-def input_range():
-    def input_range_part(message):
-        while True:
-            try:
-                part = int(input(message))
-                return part
-            except ValueError:
-                print("Range part must be a number")
-
-    start = input_range_part("Enter range start > ")
-    end = input_range_part("Enter range end > ")
-    step = input_range_part("Enter range step > ")
-    return range(start, end, step)
+def is_iterable(var):
+    return hasattr(var, "__iter__")
 
 
-def input_file():
-    path = pathlib.Path(FILE_NAME_PAYLOAD)
-    if not path.exists():
-        exit_with_critical_error("Could not find %s" % FILE_NAME_PAYLOAD)
-    else:
-        with open(path, "r") as file:
-            lines = file.readlines()
-        lines = map(lambda x: x.replace("\n", ""), lines)
-        lines = map(lambda x: x.strip(), lines)
-        lines = filter(lambda x: True if x != "" else False, lines)
-        return lines
+class HttpFuzzerCmd(cmd.Cmd):
+    def __init__(self):
+        super().__init__()
 
+        self.prompt = "cmD > "
+        self.intro = "Welcome to HTTP Fuzzer. Type \"help\" for available commands."
 
-def fuzz(request_eval_string, payload):
-    def send_request_and_log(payload_part, log_file):
-        to_eval = request_eval_string.replace(FUZZ_KEYWORD, str(payload_part))
-        response = eval(to_eval)
-        log_message = "{status_code} | {method} | {url}" \
-                      "".format(
-            status_code=str(response.status_code),
-            method=response.request.method,
-            url=response.request.url
+        # This word is replaced with payload values in requests
+        self.fuzz_keyword = "FUZZ"
+        self.log_filename = "%s.txt" % random_string(16)
+
+        self.request_value = None
+        self.payload_value = None
+
+        self.menu = (
+                "HTTP Fuzzer Menu\n"
+                + self.ruler * 40 + "\n" +
+                "Request :  {request_value}\n"
+                "Payload :  {payload_value}\n"
+                + self.ruler * 40
         )
-        log_file.write(log_message + "\n")
-        print(log_message)
 
-    with open(FILE_NAME_LOG, "w") as file:
-        file.flush()
+    # ---- Available commands ----
+    def do_request(self, line):
+        file = tkinter.filedialog.askopenfile(
+            title="Select curl-containing file",
+            initialdir=pathlib.Path(__file__).parent,
+            filetypes=(
+                (
+                    ("All curl files", "*.txt;*.sh;*.req;*.curl"),
+                    ("Curl text files", "*.txt"),
+                    ("Curl script files", "*.sh"),
+                    ("Curl request files", "*.req"),
+                    ("Curl-containing files", "*.curl"),
+                )
+            )
+        )
+        if not is_text_file(file):
+            if not file:
+                print("You haven't chosen a file")
+            else:
+                print("Provided file is not a text file")
+        else:
+            with file:
+                content = file.read()
+            curl = content \
+                .replace("\\", "") \
+                .replace("\n", "") \
+                .replace("$", "")
+            try:
+                eval_string = uncurl.parse(curl)
+                self.request_value = eval_string
+                self.output_menu()
+                print("Set request value successfully")
+            except SystemExit:
+                self.output_menu()
+                print("Could not parse curl-containing file")
 
-    print()
-    with open(FILE_NAME_LOG, "a") as file:
-        tasks = []
-        with multiprocessing.pool.ThreadPool() as pool:
-            for part in payload:
-                task = pool.apply_async(send_request_and_log, (part, file))
-                tasks.append(task)
+    def do_payload(self, line):
+        args = line.strip().split(" ")
+        if args[0] == "range":
+            if len(args) != 4:
+                print("Incorrect arguments")
+            else:
+                try:
+                    start, end, step = map(int, args[1:])
+                    self.payload_value = range(start, end + 1, step)
+                    self.output_menu()
+                    print("Set payload value successfully")
+                except ValueError:
+                    print("Range parts must be numbers")
+        elif args[0] == "file":
+            file = tkinter.filedialog.askopenfile(
+                title="Select payload file",
+                initialdir=pathlib.Path(__file__).parent,
+                filetypes=(
+                    (
+                        ("Payload text files", "*.txt"),
+                    )
+                )
+            )
+            if not is_text_file(file):
+                if not file:
+                    print("You haven't chosen a file")
+                else:
+                    print("Provided file is not a text file")
+            else:
+                with file:
+                    lines = file.readlines()
+                lines = map(lambda x: x.strip().replace("\n", ""), lines)
+                lines = filter(lambda x: True if x else False, lines)
+                self.payload_value = tuple(lines)
+                self.output_menu()
+                print("Set payload successfully")
+        else:
+            print("Incorrect arguments")
 
-            for task in tasks:
-                task.get()
+    def do_run(self, line):
+        if not isinstance(self.request_value, str) or not is_iterable(self.payload_value):
+            print("Request or Payload are unset")
+        else:
+            log_file = open(self.log_filename, "a")
+
+            def auxiliary(part):
+                eval_string = self.request_value.replace(self.fuzz_keyword, str(part))
+                response = eval(eval_string)
+                message = "{time} | {status_code} | {method} | {url}" \
+                          "".format(
+                    time=get_current_time(),
+                    status_code=str(response.status_code),
+                    method=str(response.request.method),
+                    url=str(response.request.url)
+                )
+                log_file.write(message + "\n")
+                print(message)
+
+            print()
+            with multiprocessing.pool.ThreadPool() as pool:
+                tasks = list()
+                for part in self.payload_value:
+                    task = pool.apply_async(auxiliary, (part,))
+                    tasks.append(task)
+                for task in tasks:
+                    task.get()
+            print()
+
+    # ---- Auxiliary subroutines ----
+    def output_menu(self):
+        menu = self.menu.format(
+            request_value=str(type(self.request_value)),
+            payload_value=str(type(self.payload_value))
+        )
+        clear_screen()
+        print(menu)
+
+    # ---- Overwritten CMD methods ----
+    def emptyline(self):
+        pass
+
+    def precmd(self, line):
+        self.output_menu()
+        return super().precmd(line)
+
+    def preloop(self):
+        self.output_menu()
 
 
 if __name__ == "__main__":
-    EXIT_SUCCESS = 0
-    EXIT_FAILURE = 1
-    FILE_NAME_REQUEST = "request.txt"
-    FILE_NAME_PAYLOAD = "payload.txt"
-    FILE_NAME_LOG = "log.txt"
-    FUZZ_KEYWORD = "FUZZ"
-    HELP_MESSAGE = (
-        "Available parameters:\n"
-        "* r | payload from range\n"
-        "* f | payload from file"
-    )
-    ALLOWED_PARAMETERS = [
-        "r",
-        "f",
-    ]
-
-    clear_screen()
-    request_eval_string = get_request_eval_string()
-    payload_choice = input_payload_choice()
-    if payload_choice == "r":
-        payload = input_range()
-    elif payload_choice == "f":
-        payload = input_file()
-    fuzz(request_eval_string, payload)
-    input("\nPress 'Enter' to continue...")
+    tkinter.Tk().withdraw()
+    HttpFuzzerCmd().cmdloop()
